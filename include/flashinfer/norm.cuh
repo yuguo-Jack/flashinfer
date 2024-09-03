@@ -32,7 +32,11 @@ __global__ void RMSNormKernel(T* __restrict__ input, T* __restrict__ weight, T* 
                               const uint32_t d, float eps) {
   const uint32_t bx = blockIdx.x;
   const uint32_t tx = threadIdx.x, ty = threadIdx.y;
+#ifdef FLASHINFER_WITH_HIP
+  constexpr uint32_t warp_size = 64;
+#else
   constexpr uint32_t warp_size = 32;
+#endif
   const uint32_t num_warps = blockDim.y;
   // NOTE(Zihao): it's guaranteed that num_warps should be smaller than 32
   const uint32_t thread_id = tx + ty * warp_size;
@@ -44,7 +48,7 @@ __global__ void RMSNormKernel(T* __restrict__ input, T* __restrict__ weight, T* 
 
   for (uint32_t i = 0; i < rounds; i++) {
     vec_t<T, VEC_SIZE> input_vec;
-    input_vec.fill(0);
+    input_vec.fill(static_cast<T>(0.0f));
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.load(input + bx * d + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
     }
@@ -79,8 +83,8 @@ __global__ void RMSNormKernel(T* __restrict__ input, T* __restrict__ weight, T* 
     vec_t<T, VEC_SIZE> input_vec;
     vec_t<T, VEC_SIZE> weight_vec;
     vec_t<T, VEC_SIZE> output_vec;
-    input_vec.fill(0);
-    weight_vec.fill(0);
+    input_vec.fill(static_cast<T>(0.0f));
+    weight_vec.fill(static_cast<T>(0.0f));
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.load(input + bx * d + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
       weight_vec.load(weight + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
@@ -101,9 +105,15 @@ cudaError_t RMSNorm(T* input, T* weight, T* output, uint32_t batch_size, uint32_
   const uint32_t vec_size = std::gcd(16 / sizeof(T), d);
 
   const uint32_t block_size = std::min<uint32_t>(1024, d / vec_size);
+#ifdef FLASHINFER_WITH_HIP
+  const uint32_t num_warps = ceil_div(block_size, 64);
+  dim3 nblks(batch_size);
+  dim3 nthrs(64, num_warps);
+#else
   const uint32_t num_warps = ceil_div(block_size, 32);
   dim3 nblks(batch_size);
   dim3 nthrs(32, num_warps);
+#endif
   const uint32_t smem_size = num_warps * sizeof(float);
   void* args[] = {&input, &weight, &output, &d, &eps};
 
@@ -119,7 +129,11 @@ __global__ void FusedAddRMSNormKernel(T* __restrict__ input, T* __restrict__ res
                                       T* __restrict__ weight, const uint32_t d, float eps) {
   const uint32_t bx = blockIdx.x;
   const uint32_t tx = threadIdx.x, ty = threadIdx.y;
+#ifdef FLASHINFER_WITH_HIP
+  constexpr uint32_t warp_size = 64;
+#else
   constexpr uint32_t warp_size = 32;
+#endif
   const uint32_t num_warps = blockDim.y;
   const uint32_t thread_id = tx + ty * warp_size;
   const uint32_t num_threads = num_warps * warp_size;
@@ -130,9 +144,9 @@ __global__ void FusedAddRMSNormKernel(T* __restrict__ input, T* __restrict__ res
 
   for (uint32_t i = 0; i < rounds; i++) {
     vec_t<T, VEC_SIZE> input_vec;
-    input_vec.fill(0);
+    input_vec.fill(static_cast<T>(0.0f));
     vec_t<T, VEC_SIZE> residual_vec;
-    residual_vec.fill(0);
+    residual_vec.fill(static_cast<T>(0.0f));
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.load(input + bx * d + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
       residual_vec.load(residual + bx * d + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
@@ -174,9 +188,9 @@ __global__ void FusedAddRMSNormKernel(T* __restrict__ input, T* __restrict__ res
     vec_t<T, VEC_SIZE> input_vec;
     vec_t<T, VEC_SIZE> weight_vec;
     vec_t<T, VEC_SIZE> residual_vec;
-    input_vec.fill(0);
-    weight_vec.fill(0);
-    residual_vec.fill(0);
+    input_vec.fill(static_cast<T>(0.0f));
+    weight_vec.fill(static_cast<T>(0.0f));
+    residual_vec.fill(static_cast<T>(0.0f));
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.load(input + bx * d + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
       weight_vec.load(weight + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
@@ -198,9 +212,15 @@ cudaError_t FusedAddRMSNorm(T* input, T* residual, T* weight, uint32_t batch_siz
   const uint32_t vec_size = std::gcd(16 / sizeof(T), d);
 
   const uint32_t block_size = std::min<uint32_t>(1024, d / vec_size);
+#ifdef FLASHINFER_WITH_HIP
+  const uint32_t num_warps = ceil_div(block_size, 64);
+  dim3 nblks(batch_size);
+  dim3 nthrs(64, num_warps);
+#else
   const uint32_t num_warps = ceil_div(block_size, 32);
   dim3 nblks(batch_size);
   dim3 nthrs(32, num_warps);
+#endif
   const uint32_t smem_size = num_warps * sizeof(float);
   void* args[] = {&input, &residual, &weight, &d, &eps};
 

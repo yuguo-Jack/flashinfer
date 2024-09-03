@@ -20,6 +20,7 @@
 #include <flashinfer/layout.cuh>
 #include <memory>
 
+#ifndef FLASHINFER_WITH_HIP
 void append_paged_kv_cache(torch::Tensor append_key, torch::Tensor append_value,
                            torch::Tensor append_indptr, std::optional<torch::Tensor> paged_kv_cache,
                            std::optional<torch::Tensor> paged_k_cache,
@@ -34,6 +35,7 @@ void merge_state_in_place(torch::Tensor v, torch::Tensor s, torch::Tensor v_othe
                           torch::Tensor s_other, std::optional<torch::Tensor> mask = std::nullopt);
 
 std::vector<torch::Tensor> merge_states(torch::Tensor v, torch::Tensor s);
+#endif
 
 torch::Tensor sampling_from_probs(torch::Tensor probs, torch::Tensor uniform_samples,
                                   bool deterministic);
@@ -104,6 +106,7 @@ torch::Tensor packbits(torch::Tensor x, const std::string& bitorder);
 torch::Tensor segment_packbits(torch::Tensor x, torch::Tensor input_indptr,
                                torch::Tensor output_indptr, const std::string& bitorder);
 
+#ifndef FLASHINFER_WITH_HIP
 void bmm_fp8(const torch::Tensor& A, const torch::Tensor& B, torch::Tensor& D,
              torch::Tensor& A_scale, torch::Tensor& B_scale);
 
@@ -122,3 +125,4 @@ class CutlassSegmentGEMMPyTorchWrapper {
  private:
   std::shared_ptr<flashinfer::group_gemm::CutlassSegmentGEMMHandler> handler_;
 };
+#endif

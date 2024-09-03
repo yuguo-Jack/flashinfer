@@ -13,6 +13,13 @@ src/generated/
 python/csrc/generated/
 python/flashinfer/_build_meta.py
 
+# Generated hip files
+include/flashinfer/*_hip.cuh
+include/flashinfer/group_gemm/*_hip.cuh
+python/csrc/*.hip
+python/csrc/*_hip.h
+python/csrc/*_hip.cpp
+
 # Generated documentation files
 docs/generated
 

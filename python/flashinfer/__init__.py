@@ -15,28 +15,7 @@ limitations under the License.
 """
 
 from .activation import gelu_tanh_and_mul, silu_and_mul
-from .cascade import (
-    BatchDecodeWithSharedPrefixPagedKVCacheWrapper,
-    BatchPrefillWithSharedPrefixPagedKVCacheWrapper,
-    MultiLevelCascadeAttentionWrapper,
-    merge_state,
-    merge_state_in_place,
-    merge_states,
-)
-from .decode import (
-    BatchDecodeWithPagedKVCacheWrapper,
-    CUDAGraphBatchDecodeWithPagedKVCacheWrapper,
-    single_decode_with_kv_cache,
-)
-from .gemm import SegmentGEMMWrapper, bmm_fp8
 from .norm import fused_add_rmsnorm, rmsnorm
-from .page import append_paged_kv_cache
-from .prefill import (
-    BatchPrefillWithPagedKVCacheWrapper,
-    BatchPrefillWithRaggedKVCacheWrapper,
-    single_prefill_with_kv_cache,
-    single_prefill_with_kv_cache_return_lse,
-)
 from .quantization import packbits, segment_packbits
 from .rope import (
     apply_llama31_rope,
@@ -56,7 +35,32 @@ from .sampling import (
     top_p_renorm_prob,
     top_p_sampling_from_probs,
 )
-from .sparse import BlockSparseAttentionWrapper
+
+import torch
+card_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
+if 'DCU' not in card_name:
+    from .cascade import (
+        BatchDecodeWithSharedPrefixPagedKVCacheWrapper,
+        BatchPrefillWithSharedPrefixPagedKVCacheWrapper,
+        MultiLevelCascadeAttentionWrapper,
+        merge_state,
+        merge_state_in_place,
+        merge_states,
+    )
+    from .decode import (
+        BatchDecodeWithPagedKVCacheWrapper,
+        CUDAGraphBatchDecodeWithPagedKVCacheWrapper,
+        single_decode_with_kv_cache,
+    )
+    from .gemm import SegmentGEMMWrapper, bmm_fp8
+    from .page import append_paged_kv_cache
+    from .prefill import (
+        BatchPrefillWithPagedKVCacheWrapper,
+        BatchPrefillWithRaggedKVCacheWrapper,
+        single_prefill_with_kv_cache,
+        single_prefill_with_kv_cache_return_lse,
+    )
+    from .sparse import BlockSparseAttentionWrapper
 
 try:
     from ._build_meta import __version__

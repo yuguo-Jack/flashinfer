@@ -18,7 +18,12 @@
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
 
+#ifdef FLASHINFER_WITH_HIP
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#else
 #include <cub/cub.cuh>
+#endif
 
 #include "utils.cuh"
 

@@ -16,11 +16,13 @@
 #ifndef FLASHINFER_GROUP_GEMM_CUTLASS_CUH_
 #define FLASHINFER_GROUP_GEMM_CUTLASS_CUH_
 
+#ifndef FLASHINFER_WITH_HIP
 #include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm_grouped.h"
 #include "cutlass/gemm/kernel/default_gemm_grouped.h"
 #include "cutlass/layout/matrix.h"
 #include "cutlass/numeric_types.h"
+#endif
 
 namespace flashinfer {
 
@@ -31,6 +33,7 @@ struct cutlass_dtype {
   using type = T;
 };
 
+#ifndef FLASHINFER_WITH_HIP
 template <>
 struct cutlass_dtype<half> {
   using type = cutlass::half_t;
@@ -57,6 +60,7 @@ __global__ void compute_cutlass_group_gemm_args(cutlass::gemm::GemmCoord* all_pr
   ld_w[i] = w_column_major ? k : n;  // k * n if column major, n * k if row major
   ld_y[i] = n;                       // m * n
 }
+#endif
 
 }  // namespace group_gemm
 

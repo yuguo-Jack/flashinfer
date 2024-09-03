@@ -16,9 +16,18 @@
 #ifndef FLASHINFER_SAMPLING_CUH_
 #define FLASHINFER_SAMPLING_CUH_
 
+#ifndef FLASHINFER_WITH_HIP
 #include <cub/block/block_adjacent_difference.cuh>
 #include <cub/block/block_reduce.cuh>
 #include <cub/block/block_scan.cuh>
+#else
+#include <hipcub/hipcub.hpp>
+#include <hipcub/block/block_adjacent_difference.hpp>
+#include <hipcub/block/block_reduce.hpp>
+#include <hipcub/block/block_scan.hpp>
+namespace cub = hipcub;
+#endif
+
 #include <numeric>
 
 #include "math.cuh"
@@ -40,6 +49,7 @@ using namespace cub;
     __VA_ARGS__                                                   \
   }
 
+#ifndef FLASHINFER_WITH_HIP
 #define DISPATCH_COMPUTE_CAP_NUM_THREADS(compute_capacity, BLOCK_THREADS, ...) \
   if (compute_capacity.first >= 8) {                                           \
     constexpr uint32_t BLOCK_THREADS = 1024;                                   \
@@ -48,12 +58,19 @@ using namespace cub;
     constexpr uint32_t BLOCK_THREADS = 512;                                    \
     __VA_ARGS__                                                                \
   }
+#else
+#define DISPATCH_COMPUTE_CAP_NUM_THREADS(compute_capacity, BLOCK_THREADS, ...) \
+  constexpr uint32_t BLOCK_THREADS = 1024;                                     \
+  __VA_ARGS__                                                                  
+#endif
 
 constexpr BlockScanAlgorithm SCAN_ALGO = BLOCK_SCAN_WARP_SCANS;
 constexpr BlockReduceAlgorithm REDUCE_ALGO = BLOCK_REDUCE_WARP_REDUCTIONS;
 
+#ifndef FLASHINFER_WITH_HIP
 #if (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 >= 120100)
 #define FLASHINFER_CUB_SUBTRACTLEFT_DEFINED
+#endif
 #endif
 
 template <typename T>
@@ -81,7 +98,11 @@ template <typename T, uint32_t BLOCK_THREADS, BlockScanAlgorithm SCAN_ALGORITHM,
           BlockReduceAlgorithm REDUCE_ALGORITHM>
 struct SamplingTempStorage {
   union {
+#ifdef FLASHINFER_WITH_HIP
+    T deterministic_scan[BLOCK_THREADS / 64];
+#else
     T deterministic_scan[BLOCK_THREADS / 32];
+#endif
     typename BlockScan<T, BLOCK_THREADS, SCAN_ALGORITHM>::TempStorage scan;
     typename BlockReduce<T, BLOCK_THREADS, REDUCE_ALGORITHM>::TempStorage reduce;
     typename BlockReduce<Pair<T>, BLOCK_THREADS, REDUCE_ALGORITHM>::TempStorage reduce_pair;
@@ -118,21 +139,36 @@ __device__ __forceinline__ void DeterministicInclusiveSum(
   T thread_exclusive_prefix_sum = thread_sum;
 
 #pragma unroll
+#ifndef FLASHINFER_WITH_HIP
   for (uint32_t offset = 1; offset < 32; offset *= 2) {
     T tmp = __shfl_up_sync(0xffffffff, thread_exclusive_prefix_sum, offset);
+#else
+  for (uint32_t offset = 1; offset < 64; offset *= 2) {
+    T tmp = __shfl_up(thread_exclusive_prefix_sum, offset);
+#endif
     if ((threadIdx.x + 1) % (offset * 2) == 0) {
       thread_exclusive_prefix_sum += tmp;
     }
   }
 
+#ifndef FLASHINFER_WITH_HIP
   T warp_sum = __shfl_sync(0xffffffff, thread_exclusive_prefix_sum, threadIdx.x | 0xffffffff);
   if (threadIdx.x % 32 == 31) {
+#else
+  T warp_sum = __shfl(thread_exclusive_prefix_sum, threadIdx.x | 0xffffffffffffffff);
+  if (threadIdx.x % 64 == 63) {
+#endif
     thread_exclusive_prefix_sum = 0;
   }
 
 #pragma unroll
+#ifndef FLASHINFER_WITH_HIP
   for (uint32_t offset = 16; offset >= 1; offset /= 2) {
     T tmp = __shfl_xor_sync(0xffffffff, thread_exclusive_prefix_sum, offset);
+#else
+  for (uint32_t offset = 32; offset >= 1; offset /= 2) {
+    T tmp = __shfl_xor(thread_exclusive_prefix_sum, offset);
+#endif
     if ((threadIdx.x + 1) % (offset * 2) == 0) {
       thread_exclusive_prefix_sum = tmp + thread_exclusive_prefix_sum;
     }
@@ -140,29 +176,49 @@ __device__ __forceinline__ void DeterministicInclusiveSum(
       thread_exclusive_prefix_sum = tmp;
     }
   }
-
+#ifdef FLASHINFER_WITH_HIP
+  smem_prefix_sum[threadIdx.x / 64] = warp_sum;
+#else
   smem_prefix_sum[threadIdx.x / 32] = warp_sum;
+#endif
   __syncthreads();
-
+#ifdef FLASHINFER_WITH_HIP
+  if (threadIdx.x < 64) {
+    T warp_exclusive_prefix_sum =
+        (threadIdx.x < BLOCK_THREADS / 64) ? smem_prefix_sum[threadIdx.x] : 0;
+#else
   if (threadIdx.x < 32) {
     T warp_exclusive_prefix_sum =
         (threadIdx.x < BLOCK_THREADS / 32) ? smem_prefix_sum[threadIdx.x] : 0;
-
+#endif
 #pragma unroll
+#ifndef FLASHINFER_WITH_HIP
     for (uint32_t offset = 1; offset < 32; offset *= 2) {
       T tmp = __shfl_up_sync(0xffffffff, warp_exclusive_prefix_sum, offset);
+#else
+    for (uint32_t offset = 1; offset < 64; offset *= 2) {
+      T tmp = __shfl_up(warp_exclusive_prefix_sum, offset);
+#endif
       if ((threadIdx.x + 1) % (offset * 2) == 0) {
         warp_exclusive_prefix_sum += tmp;
       }
     }
-
+#ifdef FLASHINFER_WITH_HIP
+    if (threadIdx.x % 64 == 63) {
+#else
     if (threadIdx.x % 32 == 31) {
+#endif
       warp_exclusive_prefix_sum = 0;
     }
 
 #pragma unroll
+#ifndef FLASHINFER_WITH_HIP
     for (uint32_t offset = 16; offset >= 1; offset /= 2) {
       T tmp = __shfl_xor_sync(0xffffffff, warp_exclusive_prefix_sum, offset);
+#else
+    for (uint32_t offset = 32; offset >= 1; offset /= 2) {
+      T tmp = __shfl_xor(warp_exclusive_prefix_sum, offset);
+#endif
       if ((threadIdx.x + 1) % (offset * 2) == 0) {
         warp_exclusive_prefix_sum = tmp + warp_exclusive_prefix_sum;
       }
@@ -170,7 +226,11 @@ __device__ __forceinline__ void DeterministicInclusiveSum(
         warp_exclusive_prefix_sum = tmp;
       }
     }
+#ifdef FLASHINFER_WITH_HIP
+    if (threadIdx.x < BLOCK_THREADS / 64) {
+#else
     if (threadIdx.x < BLOCK_THREADS / 32) {
+#endif
       smem_prefix_sum[threadIdx.x] = warp_exclusive_prefix_sum;
     }
   }
@@ -178,7 +238,11 @@ __device__ __forceinline__ void DeterministicInclusiveSum(
 
 #pragma unroll
   for (uint32_t i = 0; i < VEC_SIZE; ++i) {
+#ifdef FLASHINFER_WITH_HIP
+    out_data[i] = smem_prefix_sum[threadIdx.x / 64] + thread_exclusive_prefix_sum + thread_data[i];
+#else
     out_data[i] = smem_prefix_sum[threadIdx.x / 32] + thread_exclusive_prefix_sum + thread_data[i];
+#endif
   }
 }
 
@@ -196,9 +260,15 @@ __device__ __forceinline__ void DeviceSamplingFromProb(
     prob_greater_than_threshold[j] = (prob_vec[j] > threshold) ? prob_vec[j] : T(0);
     valid[j] = prob_vec[j] > threshold && (i * BLOCK_THREADS + tx) * VEC_SIZE < d;
   }
+#ifdef FLASHINFER_WITH_HIP
+  T aggregate_local =
+      BlockReduce<T, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage->block_prim.reduce)
+          .Sum(prob_greater_than_threshold);
+#else
   T aggregate_local =
       BlockReduce<T, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage->block_prim.reduce)
           .Sum<VEC_SIZE>(prob_greater_than_threshold);
+#endif
   if (tx == 0) {
     temp_storage->data.block_aggregate.value = aggregate_local;
   }
@@ -210,9 +280,13 @@ __device__ __forceinline__ void DeviceSamplingFromProb(
       DeterministicInclusiveSum<VEC_SIZE, BLOCK_THREADS, SCAN_ALGORITHM, REDUCE_ALGORITHM, T>(
           prob_greater_than_threshold, inclusive_cdf, temp_storage);
     } else {
+#ifdef FLASHINFER_WITH_HIP
+      BlockScan<T, BLOCK_THREADS, SCAN_ALGORITHM>(temp_storage->block_prim.scan)
+          .InclusiveSum(prob_greater_than_threshold, inclusive_cdf);
+#else
       BlockScan<T, BLOCK_THREADS, SCAN_ALGORITHM>(temp_storage->block_prim.scan)
           .InclusiveSum<VEC_SIZE>(prob_greater_than_threshold, inclusive_cdf);
-
+#endif
       __syncthreads();
     }
 
@@ -226,8 +300,13 @@ __device__ __forceinline__ void DeviceSamplingFromProb(
     BlockAdjacentDifference<bool, BLOCK_THREADS>(temp_storage->block_prim.adj_diff)
         .SubtractLeft<VEC_SIZE>(greater_than_u, greater_than_u_diff, BoolDiffOp());
 #else
+#ifdef FLASHINFER_WITH_HIP
+    BlockAdjacentDifference<bool, BLOCK_THREADS>(temp_storage->block_prim.adj_diff)
+        .FlagHeads(greater_than_u_diff, greater_than_u, BoolDiffOp(), 0);
+#else
     BlockAdjacentDifference<bool, BLOCK_THREADS>(temp_storage->block_prim.adj_diff)
         .FlagHeads<VEC_SIZE>(greater_than_u_diff, greater_than_u, BoolDiffOp(), 0);
+#endif
 #endif
     __syncthreads();
 
@@ -338,10 +417,15 @@ __global__ void TopKSamplingFromProbKernel(DType* probs, DType* uniform_samples,
         probs_gt_pivot[j] = {(probs_vec[j] > pivot) ? probs_vec[j] : DType(0),
                              (probs_vec[j] > pivot && (i * BLOCK_THREADS + tx) * VEC_SIZE + j < d)};
       }
-
+#ifdef FLASHINFER_WITH_HIP
+      aggregate_gt_pivot += BlockReduce<Pair<DType>, BLOCK_THREADS, REDUCE_ALGORITHM>(
+                                temp_storage.block_prim.reduce_pair)
+                                .Sum(probs_gt_pivot);
+#else
       aggregate_gt_pivot += BlockReduce<Pair<DType>, BLOCK_THREADS, REDUCE_ALGORITHM>(
                                 temp_storage.block_prim.reduce_pair)
                                 .Sum<VEC_SIZE>(probs_gt_pivot);
+#endif
       if (tx == 0) {
         temp_storage.data.block_aggregate.pair = aggregate_gt_pivot;
       }
@@ -425,9 +509,13 @@ __global__ void TopPSamplingFromProbKernel(DType* probs, DType* uniform_samples,
       for (uint32_t j = 0; j < VEC_SIZE; ++j) {
         probs_gt_pivot[j] = (probs_vec[j] > pivot) ? probs_vec[j] : DType(0);
       }
-
+#ifdef FLASHINFER_WITH_HIP
+      aggregate_gt_pivot += BlockReduce<DType, BLOCK_THREADS>(temp_storage.block_prim.reduce)
+                                .Sum(probs_gt_pivot);
+#else
       aggregate_gt_pivot += BlockReduce<DType, BLOCK_THREADS>(temp_storage.block_prim.reduce)
                                 .Sum<VEC_SIZE>(probs_gt_pivot);
+#endif
       if (tx == 0) {
         temp_storage.data.block_aggregate.value = aggregate_gt_pivot;
       }
@@ -486,8 +574,13 @@ __global__ void MinPSamplingFromProbKernel(DType* probs, DType* uniform_samples,
     for (uint32_t j = 0; j < VEC_SIZE; ++j) {
       probs_[j] = probs_vec[j];
     }
+#ifdef FLASHINFER_WITH_HIP
+    max_p = max(max_p, BlockReduce<DType, BLOCK_THREADS>(temp_storage.block_prim.reduce)
+                           .Reduce(probs_, cub::Max()));
+#else
     max_p = max(max_p, BlockReduce<DType, BLOCK_THREADS>(temp_storage.block_prim.reduce)
                            .Reduce<VEC_SIZE>(probs_, cub::Max()));
+#endif
     __syncthreads();
   }
   if (tx == 0) {
@@ -534,9 +627,13 @@ __global__ void MinPSamplingFromProbKernel(DType* probs, DType* uniform_samples,
       for (uint32_t j = 0; j < VEC_SIZE; ++j) {
         probs_gt_pivot[j] = (probs_vec[j] > pivot) ? probs_vec[j] : DType(0);
       }
-
+#ifdef FLASHINFER_WITH_HIP
+      aggregate_gt_pivot += BlockReduce<DType, BLOCK_THREADS>(temp_storage.block_prim.reduce)
+                                .Sum(probs_gt_pivot);
+#else
       aggregate_gt_pivot += BlockReduce<DType, BLOCK_THREADS>(temp_storage.block_prim.reduce)
                                 .Sum<VEC_SIZE>(probs_gt_pivot);
+#endif
       if (tx == 0) {
         temp_storage.data.block_aggregate.value = aggregate_gt_pivot;
       }
@@ -618,10 +715,15 @@ __global__ void TopKTopPSamplingFromProbKernel(DType* probs, DType* uniform_samp
         probs_gt_pivot[j] = {(probs_vec[j] > pivot) ? probs_vec[j] : DType(0),
                              (probs_vec[j] > pivot && (i * BLOCK_THREADS + tx) * VEC_SIZE + j < d)};
       }
-
+#ifdef FLASHINFER_WITH_HIP
+      aggregate_gt_pivot += BlockReduce<Pair<DType>, BLOCK_THREADS, REDUCE_ALGORITHM>(
+                                temp_storage.block_prim.reduce_pair)
+                                .Sum(probs_gt_pivot);
+#else
       aggregate_gt_pivot += BlockReduce<Pair<DType>, BLOCK_THREADS, REDUCE_ALGORITHM>(
                                 temp_storage.block_prim.reduce_pair)
                                 .Sum<VEC_SIZE>(probs_gt_pivot);
+#endif
       if (tx == 0) {
         temp_storage.data.block_aggregate.pair = aggregate_gt_pivot;
       }
@@ -710,8 +812,13 @@ cudaError_t TopKSamplingFromProb(T* probs, T* uniform_samples, IdType* output, b
         vec_size, VEC_SIZE, {DISPATCH_DETERMINISTIC(deterministic, DETERMINISTIC, {
           auto kernel = TopKSamplingFromProbKernel<BLOCK_THREADS, SCAN_ALGO, REDUCE_ALGO, VEC_SIZE,
                                                    DETERMINISTIC, T, IdType>;
+#ifdef FLASHINFER_WITH_HIP
+          FLASHINFER_CUDA_CALL(
+              cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
           FLASHINFER_CUDA_CALL(
               cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif              
           FLASHINFER_CUDA_CALL(
               cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
         })});
@@ -738,8 +845,13 @@ cudaError_t TopPSamplingFromProb(T* probs, T* uniform_samples, IdType* output, b
       vec_size, VEC_SIZE, {DISPATCH_DETERMINISTIC(deterministic, DETERMINISTIC, {
         auto kernel = TopPSamplingFromProbKernel<BLOCK_THREADS, SCAN_ALGO, REDUCE_ALGO, VEC_SIZE,
                                                  DETERMINISTIC, T, IdType>;
+#ifdef FLASHINFER_WITH_HIP 
+        FLASHINFER_CUDA_CALL(
+            cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
         FLASHINFER_CUDA_CALL(
             cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
         FLASHINFER_CUDA_CALL(
             cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
       })});
@@ -763,8 +875,13 @@ cudaError_t MinPSamplingFromProb(T* probs, T* uniform_samples, T* min_p_arr, IdT
       vec_size, VEC_SIZE, {DISPATCH_DETERMINISTIC(deterministic, DETERMINISTIC, {
         auto kernel = MinPSamplingFromProbKernel<BLOCK_THREADS, SCAN_ALGO, REDUCE_ALGO, VEC_SIZE,
                                                  DETERMINISTIC, T, IdType>;
+#ifdef FLASHINFER_WITH_HIP                                                 
+        FLASHINFER_CUDA_CALL(
+            cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
         FLASHINFER_CUDA_CALL(
             cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
         FLASHINFER_CUDA_CALL(
             cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
       })});
@@ -791,8 +908,13 @@ cudaError_t TopKTopPSamplingFromProb(T* probs, T* uniform_samples, IdType* top_k
         vec_size, VEC_SIZE, {DISPATCH_DETERMINISTIC(deterministic, DETERMINISTIC, {
           auto kernel = TopKTopPSamplingFromProbKernel<BLOCK_THREADS, SCAN_ALGO, REDUCE_ALGO,
                                                        VEC_SIZE, DETERMINISTIC, T, IdType>;
+#ifdef FLASHINFER_WITH_HIP     
+          FLASHINFER_CUDA_CALL(
+              cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
           FLASHINFER_CUDA_CALL(
               cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
           FLASHINFER_CUDA_CALL(
               cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
         })});
@@ -844,10 +966,17 @@ __global__ void TopPRenormProbKernel(DType* probs, DType* renormed_prob, DType* 
     for (uint32_t j = 0; j < VEC_SIZE; ++j) {
       probs_greater_than_pivot[j] = probs_vec[j];
     }
+#ifdef FLASHINFER_WITH_HIP
+    threadlocal_max_val =
+        max(threadlocal_max_val,
+            BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
+                .Reduce(probs_greater_than_pivot, cub::Max()));
+#else
     threadlocal_max_val =
         max(threadlocal_max_val,
             BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
                 .Reduce<VEC_SIZE>(probs_greater_than_pivot, cub::Max()));
+#endif
     __syncthreads();
   }
   if (tx == 0) {
@@ -886,9 +1015,15 @@ __global__ void TopPRenormProbKernel(DType* probs, DType* renormed_prob, DType* 
           max_le_high = max(max_le_high, probs_vec[j]);
         }
       }
+#ifdef FLASHINFER_WITH_HIP
+      threadlocal_sum +=
+          BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
+              .Sum(probs_greater_than_pivot);
+#else
       threadlocal_sum +=
           BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
               .Sum<VEC_SIZE>(probs_greater_than_pivot);
+#endif
       __syncthreads();
     }
     min_gt_low = BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
@@ -959,6 +1094,17 @@ __global__ void TopKMaskLogitsKernel(DType* logits, DType* masked_logits, IdType
       for (uint32_t j = 0; j < VEC_SIZE; ++j) {
         logits_greater_than_pivot[j] = logits_vec[j];
       }
+#ifdef FLASHINFER_WITH_HIP
+      threadlocal_max_val =
+          max(threadlocal_max_val,
+              BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
+                  .Reduce(logits_greater_than_pivot, cub::Max()));
+      __syncthreads();
+      threadlocal_min_val =
+          min(threadlocal_min_val,
+              BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
+                  .Reduce(logits_greater_than_pivot, cub::Min()));
+#else
       threadlocal_max_val =
           max(threadlocal_max_val,
               BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
@@ -968,6 +1114,7 @@ __global__ void TopKMaskLogitsKernel(DType* logits, DType* masked_logits, IdType
           min(threadlocal_min_val,
               BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
                   .Reduce<VEC_SIZE>(logits_greater_than_pivot, cub::Min()));
+#endif
       __syncthreads();
     }
     if (tx == 0) {
@@ -1009,9 +1156,15 @@ __global__ void TopKMaskLogitsKernel(DType* logits, DType* masked_logits, IdType
             max_le_high = max(max_le_high, logits_vec[j]);
           }
         }
+#ifdef FLASHINFER_WITH_HIP
+        threadlocal_count_sum +=
+            BlockReduce<int, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce_int)
+                .Sum(probs_greater_than_pivot_count);
+#else
         threadlocal_count_sum +=
             BlockReduce<int, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce_int)
                 .Sum<VEC_SIZE>(probs_greater_than_pivot_count);
+#endif
         __syncthreads();
       }
       min_gt_low =
@@ -1083,10 +1236,17 @@ __global__ void TopKRenormProbKernel(DType* probs, DType* renormed_prob, IdType*
       for (uint32_t j = 0; j < VEC_SIZE; ++j) {
         probs_greater_than_pivot[j] = probs_vec[j];
       }
+#ifdef FLASHINFER_WITH_HIP
+      threadlocal_max_val =
+          max(threadlocal_max_val,
+              BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
+                  .Reduce(probs_greater_than_pivot, cub::Max()));
+#else
       threadlocal_max_val =
           max(threadlocal_max_val,
               BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
                   .Reduce<VEC_SIZE>(probs_greater_than_pivot, cub::Max()));
+#endif
       __syncthreads();
     }
     if (tx == 0) {
@@ -1128,9 +1288,15 @@ __global__ void TopKRenormProbKernel(DType* probs, DType* renormed_prob, IdType*
             max_le_high = max(max_le_high, probs_vec[j]);
           }
         }
+#ifdef FLASHINFER_WITH_HIP
+        threadlocal_sum += BlockReduce<Pair<DType>, BLOCK_THREADS, REDUCE_ALGORITHM>(
+                               temp_storage.block_prim.reduce_pair)
+                               .Sum(probs_greater_than_pivot_pair);
+#else
         threadlocal_sum += BlockReduce<Pair<DType>, BLOCK_THREADS, REDUCE_ALGORITHM>(
                                temp_storage.block_prim.reduce_pair)
                                .Sum<VEC_SIZE>(probs_greater_than_pivot_pair);
+#endif
         __syncthreads();
       }
       min_gt_low =
@@ -1190,8 +1356,13 @@ cudaError_t TopPRenormProb(DType* probs, DType* renormed_prob, DType* top_p_arr,
   void* args[] = {&probs, &renormed_prob, &top_p_arr, &top_p_val, &d};
   DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
     auto kernel = TopPRenormProbKernel<BLOCK_THREADS, REDUCE_ALGO, VEC_SIZE, DType>;
+#ifdef FLASHINFER_WITH_HIP   
+    FLASHINFER_CUDA_CALL(
+        cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
     FLASHINFER_CUDA_CALL(
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
     FLASHINFER_CUDA_CALL(cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
   });
   return cudaSuccess;
@@ -1211,8 +1382,13 @@ cudaError_t TopKRenormProb(DType* probs, DType* renormed_prob, IdType* top_k_arr
     void* args[] = {&probs, &renormed_prob, &top_k_arr, &top_k_val, &d};
     DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
       auto kernel = TopKRenormProbKernel<BLOCK_THREADS, REDUCE_ALGO, VEC_SIZE, DType, IdType>;
+#ifdef FLASHINFER_WITH_HIP   
+      FLASHINFER_CUDA_CALL(
+          cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
       FLASHINFER_CUDA_CALL(
           cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
       FLASHINFER_CUDA_CALL(cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
     });
     return cudaSuccess;
@@ -1233,8 +1409,13 @@ cudaError_t TopKMaskLogits(DType* logits, DType* masked_logits, IdType* top_k_ar
     void* args[] = {&logits, &masked_logits, &top_k_arr, &top_k_val, &d};
     DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
       auto kernel = TopKMaskLogitsKernel<BLOCK_THREADS, REDUCE_ALGO, VEC_SIZE, DType, IdType>;
+#ifdef FLASHINFER_WITH_HIP  
+      FLASHINFER_CUDA_CALL(
+          cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
       FLASHINFER_CUDA_CALL(
           cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
       FLASHINFER_CUDA_CALL(cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
     });
     return cudaSuccess;
@@ -1311,9 +1492,15 @@ __global__ void ChainSpeculativeSampling(DType* draft_probs, IdType* draft_token
     for (uint32_t j = 0; j < VEC_SIZE; ++j) {
       relu_q_minus_p[j] = max(q_vec[j] - p_vec[j], DType(0));
     }
+#ifdef FLASHINFER_WITH_HIP
+    sum_relu_q_minus_p +=
+        BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
+            .Sum(relu_q_minus_p);
+#else
     sum_relu_q_minus_p +=
         BlockReduce<DType, BLOCK_THREADS, REDUCE_ALGORITHM>(temp_storage.block_prim.reduce)
             .Sum<VEC_SIZE>(relu_q_minus_p);
+#endif
     __syncthreads();
   }
   if (tx == 0) {
@@ -1385,8 +1572,13 @@ cudaError_t ParallelTopPSamplingFromProb(T* probs, T* uniform_samples, IdType* o
       vec_size, VEC_SIZE, {DISPATCH_DETERMINISTIC(deterministic, DETERMINISTIC, {
         auto kernel = TopPSamplingFromProbKernel<BLOCK_THREADS, SCAN_ALGO, REDUCE_ALGO, VEC_SIZE,
                                                  DETERMINISTIC, T, IdType>;
+#ifdef FLASHINFER_WITH_HIP  
+        FLASHINFER_CUDA_CALL(
+            cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
         FLASHINFER_CUDA_CALL(
             cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
         FLASHINFER_CUDA_CALL(
             cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
       })});
@@ -1420,8 +1612,13 @@ cudaError_t ChainSpeculativeSampling(DType* draft_probs, IdType* draft_token_ids
       vec_size, VEC_SIZE, {DISPATCH_DETERMINISTIC(deterministic, DETERMINISTIC, {
         auto kernel = ChainSpeculativeSampling<BLOCK_THREADS, SCAN_ALGO, REDUCE_ALGO, VEC_SIZE,
                                                DETERMINISTIC, DType, IdType>;
+#ifdef FLASHINFER_WITH_HIP 
+        FLASHINFER_CUDA_CALL(
+            cudaFuncSetAttribute((const void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#else
         FLASHINFER_CUDA_CALL(
             cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+#endif
         FLASHINFER_CUDA_CALL(
             cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
       })});

@@ -295,7 +295,11 @@ cudaError_t BatchQKApplyRotaryInPlace(DType* __restrict__ q, DType* __restrict__
 
   DISPATCH_INTERLEAVE(interleave, INTERLEAVE, {
     DISPATCH_HEAD_DIM(head_dim, HEAD_DIM, {
+#ifdef FLASHINFER_WITH_HIP
+      constexpr uint32_t vec_size = 16 / sizeof(DType) > HEAD_DIM / 32 ? 16 / sizeof(DType) : HEAD_DIM / 32;
+#else
       constexpr uint32_t vec_size = std::max(16 / sizeof(DType), HEAD_DIM / 32);
+#endif
       constexpr uint32_t bdx = HEAD_DIM / vec_size;
       uint32_t num_threads = std::max(128U, bdx);
       uint32_t bdy = num_threads / bdx;
@@ -339,7 +343,11 @@ cudaError_t BatchQKApplyLlama31RotaryInPlace(
 
   DISPATCH_INTERLEAVE(interleave, INTERLEAVE, {
     DISPATCH_HEAD_DIM(head_dim, HEAD_DIM, {
+#ifdef FLASHINFER_WITH_HIP
+      constexpr uint32_t vec_size = 16 / sizeof(DType) > HEAD_DIM / 32 ? 16 / sizeof(DType) : HEAD_DIM / 32;
+#else
       constexpr uint32_t vec_size = std::max(16 / sizeof(DType), HEAD_DIM / 32);
+#endif
       constexpr uint32_t bdx = HEAD_DIM / vec_size;
       uint32_t num_threads = std::max(128U, bdx);
       uint32_t bdy = num_threads / bdx;
@@ -384,7 +392,11 @@ cudaError_t BatchQKApplyRotary(DType* __restrict__ q, DType* __restrict__ k,
 
   DISPATCH_INTERLEAVE(interleave, INTERLEAVE, {
     DISPATCH_HEAD_DIM(head_dim, HEAD_DIM, {
+#ifdef FLASHINFER_WITH_HIP
+      constexpr uint32_t vec_size = 16 / sizeof(DType) > HEAD_DIM / 32 ? 16 / sizeof(DType) : HEAD_DIM / 32;
+#else
       constexpr uint32_t vec_size = std::max(16 / sizeof(DType), HEAD_DIM / 32);
+#endif
       constexpr uint32_t bdx = HEAD_DIM / vec_size;
       uint32_t num_threads = std::max(128U, bdx);
       uint32_t bdy = num_threads / bdx;
@@ -432,7 +444,11 @@ cudaError_t BatchQKApplyLlama31Rotary(DType* __restrict__ q, DType* __restrict__
 
   DISPATCH_INTERLEAVE(interleave, INTERLEAVE, {
     DISPATCH_HEAD_DIM(head_dim, HEAD_DIM, {
+#ifdef FLASHINFER_WITH_HIP
+      constexpr uint32_t vec_size = 16 / sizeof(DType) > HEAD_DIM / 32 ? 16 / sizeof(DType) : HEAD_DIM / 32;
+#else
       constexpr uint32_t vec_size = std::max(16 / sizeof(DType), HEAD_DIM / 32);
+#endif
       constexpr uint32_t bdx = HEAD_DIM / vec_size;
       uint32_t num_threads = std::max(128U, bdx);
       uint32_t bdy = num_threads / bdx;

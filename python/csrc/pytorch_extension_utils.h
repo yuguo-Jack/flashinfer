@@ -15,9 +15,17 @@
  */
 #pragma once
 #include <c10/cuda/CUDAStream.h>
-#include <cuda_bf16.h>
+
 #include <cuda_fp16.h>
+#ifdef FLASHINFER_WITH_HIP
+#include <hip/hip_bf16.h>
+typedef __hip_bfloat16 nv_bfloat16;
+typedef __hip_bfloat162 nv_bfloat162;
+typedef __half nv_half;
+#else
+#include <cuda_bf16.h>
 #include <cuda_fp8.h>
+#endif
 #include <torch/extension.h>
 
 #include <flashinfer/layout.cuh>
@@ -243,9 +251,11 @@ inline constexpr uint32_t pack_u16(uint16_t a, uint16_t b) {
 
 #define CHECK_SHAPE(a, b) check_shape(a, b, #a, #b)
 
+#ifndef FLASHINFER_WITH_HIP
 #define CHECK_EQ(a, b) TORCH_CHECK((a) == (b), "CHECK_EQ(" #a ", " #b ") failed. ", a, " vs ", b)
 
 #define CHECK_GE(a, b) TORCH_CHECK((a) >= (b), "CHECK_GE(" #a ", " #b ") failed. ", a, " vs ", b)
+#endif
 
 inline bool is_float8_tensor(const torch::Tensor& tensor) {
   return tensor.scalar_type() == at::ScalarType::Float8_e4m3fn ||

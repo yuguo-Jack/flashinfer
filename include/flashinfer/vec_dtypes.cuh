@@ -16,17 +16,25 @@
 #ifndef VEC_DTYPES_CUH_
 #define VEC_DTYPES_CUH_
 
+#ifdef FLASHINFER_WITH_HIP
+#include <hip/hip_bf16.h>
+typedef __hip_bfloat16 nv_bfloat16;
+typedef __hip_bfloat162 nv_bfloat162;
+#else
 #include <cuda_bf16.h>
-#include <cuda_fp16.h>
 #include <cuda_fp8.h>
-#include <cuda_runtime.h>
+#endif
 
+#include <cuda_fp16.h>
+#include <cuda_runtime.h>
 #include <type_traits>
 
 namespace flashinfer {
 
+#ifndef FLASHINFER_WITH_HIP
 #if (!defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 900))
 #define FLASHINFER_HARDWARE_FP8_CONVERSION_ENABLED
+#endif
 #endif
 
 #define FLASHINFER_INLINE inline __attribute__((always_inline)) __device__
@@ -49,7 +57,11 @@ struct vec_cast<float, half> {
   template <size_t vec_size>
   FLASHINFER_INLINE static void cast(float* dst, const half* src) {
     if constexpr (vec_size == 1) {
+#ifdef FLASHINFER_WITH_HIP
+      dst[0] = __half2float(src[0]);
+#else
       dst[0] = (float)src[0];
+#endif
     } else {
 #pragma unroll
       for (size_t i = 0; i < vec_size / 2; ++i) {
@@ -73,6 +85,8 @@ struct vec_cast<half, float> {
     }
   }
 };
+
+#ifndef FLASHINFER_WITH_HIP
 
 template <typename T>
 constexpr FLASHINFER_INLINE int get_exponent_bits() {
@@ -308,12 +322,18 @@ struct vec_cast<half, __nv_fp8_e5m2> {
   }
 };
 
+#endif
+
 template <>
 struct vec_cast<float, nv_bfloat16> {
   template <size_t vec_size>
   FLASHINFER_INLINE static void cast(float* dst, const nv_bfloat16* src) {
     if constexpr (vec_size == 1) {
+#ifdef FLASHINFER_WITH_HIP
+      dst[0] = __bfloat162float(src[0]);
+#else
       dst[0] = (float)src[0];
+#endif
     } else {
 #pragma unroll
       for (size_t i = 0; i < vec_size / 2; ++i) {
@@ -328,7 +348,11 @@ struct vec_cast<nv_bfloat16, float> {
   template <size_t vec_size>
   FLASHINFER_INLINE static void cast(nv_bfloat16* dst, const float* src) {
     if constexpr (vec_size == 1) {
+#ifdef FLASHINFER_WITH_HIP
+      dst[0] = __float2bfloat16(src[0]);
+#else
       dst[0] = nv_bfloat16(src[0]);
+#endif
     } else {
 #pragma unroll
       for (size_t i = 0; i < vec_size / 2; ++i) {
@@ -358,7 +382,11 @@ struct vec_t {
 template <typename src_float_t, typename tgt_float_t, size_t vec_size>
 FLASHINFER_INLINE void cast_from_impl(vec_t<tgt_float_t, vec_size>& dst,
                                       const vec_t<src_float_t, vec_size>& src) {
+#ifdef FLASHINFER_WITH_HIP
+  vec_cast<tgt_float_t, src_float_t>:: template cast<vec_size>(
+#else
   vec_cast<tgt_float_t, src_float_t>::cast<vec_size>(
+#endif
       dst.ptr(), const_cast<vec_t<src_float_t, vec_size>*>(&src)->ptr());
 }
 
@@ -386,6 +414,8 @@ FLASHINFER_INLINE void cast_store_impl(tgt_float_t* dst_ptr,
   }
 }
 
+
+#ifndef FLASHINFER_WITH_HIP
 /******************* vec_t<__nv_fp8_e4m3> *******************/
 
 // __nv_fp8_e4m3 x 1
@@ -880,6 +910,7 @@ struct vec_t<__nv_fp8_e5m2, vec_size> {
   }
 };
 
+#endif
 /******************* vec_t<half> *******************/
 
 // half x 1
@@ -1111,7 +1142,11 @@ struct vec_t<nv_bfloat16, 2> {
 };
 
 FLASHINFER_INLINE void vec_t<nv_bfloat16, 2>::fill(nv_bfloat16 val) {
+#ifdef FLASHINFER_WITH_HIP
+  data = __bfloat162bfloat162(val);
+#else
   data = make_bfloat162(val, val);
+#endif
 }
 
 FLASHINFER_INLINE void vec_t<nv_bfloat16, 2>::load(const nv_bfloat16* ptr) {
@@ -1156,8 +1191,13 @@ struct vec_t<nv_bfloat16, 4> {
 };
 
 FLASHINFER_INLINE void vec_t<nv_bfloat16, 4>::fill(nv_bfloat16 val) {
+#ifdef FLASHINFER_WITH_HIP
+  *(nv_bfloat162*)(&data.x) = __bfloat162bfloat162(val);
+  *(nv_bfloat162*)(&data.y) = __bfloat162bfloat162(val);
+#else
   *(nv_bfloat162*)(&data.x) = make_bfloat162(val, val);
   *(nv_bfloat162*)(&data.y) = make_bfloat162(val, val);
+#endif
 }
 
 FLASHINFER_INLINE void vec_t<nv_bfloat16, 4>::load(const nv_bfloat16* ptr) {
@@ -1186,10 +1226,17 @@ struct vec_t<nv_bfloat16, vec_size> {
   FLASHINFER_INLINE void fill(nv_bfloat16 val) {
 #pragma unoll
     for (size_t i = 0; i < vec_size / 8; ++i) {
+#ifdef FLASHINFER_WITH_HIP
+      *(nv_bfloat162*)(&(data[i].x)) = __bfloat162bfloat162(val);
+      *(nv_bfloat162*)(&(data[i].y)) = __bfloat162bfloat162(val);
+      *(nv_bfloat162*)(&(data[i].z)) = __bfloat162bfloat162(val);
+      *(nv_bfloat162*)(&(data[i].w)) = __bfloat162bfloat162(val);
+#else
       *(nv_bfloat162*)(&(data[i].x)) = make_bfloat162(val, val);
       *(nv_bfloat162*)(&(data[i].y)) = make_bfloat162(val, val);
       *(nv_bfloat162*)(&(data[i].z)) = make_bfloat162(val, val);
       *(nv_bfloat162*)(&(data[i].w)) = make_bfloat162(val, val);
+#endif
     }
   }
   FLASHINFER_INLINE void load(const nv_bfloat16* ptr) {

@@ -18,11 +18,13 @@
 #include "flashinfer_ops.h"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+#ifndef FLASHINFER_WITH_HIP
   m.def("append_paged_kv_cache", &append_paged_kv_cache, "Append paged KV-Cache operator");
   m.def("merge_state", &merge_state, "Merge two self-attention states");
   m.def("merge_state_in_place", &merge_state_in_place,
         "Merge another self-attention state in-place.");
   m.def("merge_states", &merge_states, "Merge multiple self-attention states");
+#endif
   m.def("sampling_from_probs", &sampling_from_probs, "Sample from probabilities");
   m.def("top_k_sampling_from_probs", &top_k_sampling_from_probs,
         "Top-k sampling from probabilities");
@@ -48,9 +50,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("apply_llama31_rope", &apply_llama31_rope, "Apply Llama 3.1 style RoPE");
   m.def("packbits", &packbits, "GPU packbits operator");
   m.def("segment_packbits", &segment_packbits, "GPU segment packbits operator");
+#ifndef FLASHINFER_WITH_HIP
   m.def("bmm_fp8", &bmm_fp8, "BMM FP8");
   py::class_<CutlassSegmentGEMMPyTorchWrapper>(m, "CutlassSegmentGEMMPyTorchWrapper")
       .def(py::init<torch::Tensor>())
       .def("register_workspace", &CutlassSegmentGEMMPyTorchWrapper::RegisterWorkspaceBuffer)
       .def("run", &CutlassSegmentGEMMPyTorchWrapper::Run);
+#endif
 }

@@ -15,8 +15,14 @@
  */
 #ifndef FLASHINFER_UTILS_CUH_
 #define FLASHINFER_UTILS_CUH_
-#include <cuda_device_runtime_api.h>
+
+#ifdef FLASHINFER_WITH_HIP
+#include <hip/hip_runtime.h>
+#define cudaLaunchKernel hipLaunchKernel
+#else
 #include <cuda_runtime.h>
+#include <cuda_device_runtime_api.h>
+#endif
 
 #include <iostream>
 #include <sstream>
@@ -246,12 +252,17 @@ __forceinline__ __device__ __host__ T1 ceil_div(const T1 x, const T2 y) {
 }
 
 inline std::pair<int, int> GetCudaComputeCapability() {
+#ifndef FLASHINFER_WITH_HIP
   int device_id = 0;
   cudaGetDevice(&device_id);
   int major = 0, minor = 0;
   cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device_id);
   cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device_id);
   return std::make_pair(major, minor);
+#else
+  int major = 0, minor = 0;
+  return std::make_pair(major, minor);
+#endif
 }
 
 template <typename T>

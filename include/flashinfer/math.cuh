@@ -35,7 +35,11 @@ __forceinline__ __device__ uint32_t half2_as_uint32(half2 x) { return *(uint32_t
  */
 __forceinline__ __device__ float ptx_exp2(float x) {
   float y;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("ex2.approx.ftz.f32 %0, %1;" : "=f"(y) : "f"(x));
+#else 
+  y = exp2f(x);
+#endif
   return y;
 }
 
@@ -45,7 +49,11 @@ __forceinline__ __device__ float ptx_exp2(float x) {
  */
 __forceinline__ __device__ float ptx_log2(float x) {
   float y;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("lg2.approx.ftz.f32 %0, %1;" : "=f"(y) : "f"(x));
+#else
+  y = log2f(x);
+#endif
   return y;
 }
 
@@ -54,10 +62,16 @@ __forceinline__ __device__ float ptx_log2(float x) {
  * \param x input
  */
 __forceinline__ __device__ half2 ptx_exp2(half2 x) {
+#ifndef FLASHINFER_WITH_HIP
   uint32_t y_u32;
   uint32_t x_u32 = half2_as_uint32(x);
   asm volatile("ex2.approx.f16x2 %0, %1;" : "=r"(y_u32) : "r"(x_u32));
   return uint32_as_half2(y_u32);
+#else
+  half2 y;
+  y = h2exp2(x);
+  return y;
+#endif
 }
 
 /*!
@@ -65,9 +79,15 @@ __forceinline__ __device__ half2 ptx_exp2(half2 x) {
  * \param x input
  */
 __forceinline__ __device__ half ptx_exp2(half x) {
+#ifndef FLASHINFER_WITH_HIP
   ushort y_u16;
   asm volatile("ex2.approx.f16 %0, %1;" : "=h"(y_u16) : "h"(__half_as_ushort(x)));
   return __ushort_as_half(y_u16);
+#else
+  half y;
+  y = hexp2(x);
+  return y;
+#endif
 }
 
 /*!
@@ -76,7 +96,11 @@ __forceinline__ __device__ half ptx_exp2(half x) {
  */
 __forceinline__ __device__ float ptx_rcp(float x) {
   float y;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("rcp.approx.ftz.f32 %0, %1;" : "=f"(y) : "f"(x));
+#else
+  y = __frcp_rn(x);
+#endif
   return y;
 }
 
@@ -88,9 +112,13 @@ __forceinline__ __device__ float ptx_rcp(float x) {
  */
 __forceinline__ __device__ float shfl_xor_sync(float x, int lane_mask) {
   float y;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("shfl.sync.bfly.b32 %0, %1, %2, 0x1f, 0xffffffff;"
                : "=f"(y)
                : "f"(x), "r"(lane_mask));
+#else
+  y = __shfl_xor(x, lane_mask);
+#endif
   return y;
 }
 
@@ -101,7 +129,11 @@ __forceinline__ __device__ float shfl_xor_sync(float x, int lane_mask) {
  * \param lane_mask The mask to perform thread index xor with: y[i] <- x[i ^ lane_mask]
  */
 __forceinline__ __device__ half2 shfl_xor_sync(half2 x, int lane_mask) {
+#ifndef FLASHINFER_WITH_HIP
   return __shfl_xor_sync(0xffffffff, x, lane_mask);
+#else
+  return __shfl_xor(x, lane_mask);
+#endif
 }
 
 /*!
@@ -110,7 +142,11 @@ __forceinline__ __device__ half2 shfl_xor_sync(half2 x, int lane_mask) {
  */
 __forceinline__ __device__ float rsqrt(float x) {
   float y;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("rsqrt.approx.ftz.f32 %0, %1;" : "=f"(y) : "f"(x));
+#else
+  y = rsqrtf(x);
+#endif
   return y;
 }
 
@@ -120,7 +156,11 @@ __forceinline__ __device__ float rsqrt(float x) {
  */
 __forceinline__ __device__ float tanh(float x) {
   float y;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("tanh.approx.f32 %0, %1;" : "=f"(y) : "f"(x));
+#else
+  y = tanhf(x);
+#endif
   return y;
 }
 
@@ -129,10 +169,17 @@ __forceinline__ __device__ float tanh(float x) {
  * \param x input
  */
 __forceinline__ __device__ half2 tanh(half2 x) {
+#ifndef FLASHINFER_WITH_HIP
   uint32_t y_u32;
   uint32_t x_u32 = half2_as_uint32(x);
   asm volatile("tanh.approx.f16x2 %0, %1;" : "=r"(y_u32) : "r"(x_u32));
   return uint32_as_half2(y_u32);
+#else
+  half2 y;
+  y.x = __float2half(tanhf(__half2float(x.x)));
+  y.y = __float2half(tanhf(__half2float(x.y)));
+  return y;
+#endif
 }
 
 /*!
@@ -141,7 +188,11 @@ __forceinline__ __device__ half2 tanh(half2 x) {
  */
 __forceinline__ __device__ half tanh(half x) {
   ushort y_u16;
+#ifndef FLASHINFER_WITH_HIP
   asm volatile("tanh.approx.f16 %0, %1;" : "=h"(y_u16) : "h"(__half_as_ushort(x)));
+#else
+  return __float2half(tanhf(__half2float(x)));
+#endif
   return __ushort_as_half(y_u16);
 }
 
