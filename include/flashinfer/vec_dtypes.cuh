@@ -39,6 +39,7 @@ namespace flashinfer {
 
 #define FLASHINFER_INLINE inline __attribute__((always_inline)) __device__
 
+#ifndef FLASHINFER_WITH_HIP
 #if (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 < 120400) && \
     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
 // CUDA version < 12.4 and GPU architecture < 80
@@ -82,6 +83,7 @@ FLASHINFER_INLINE float2 __bfloat1622float2(const __nv_bfloat162 a) {
   hi_float = __internal_bfloat162float(((__nv_bfloat162_raw)a).y);
   return make_float2(lo_float, hi_float);
 }
+#endif
 #endif
 
 /******************* vec_t type cast *******************/
