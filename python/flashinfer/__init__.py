@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from .activation import gelu_tanh_and_mul, silu_and_mul
-from .norm import fused_add_rmsnorm, rmsnorm
+from .activation import gelu_and_mul, gelu_tanh_and_mul, silu_and_mul
+from .norm import fused_add_rmsnorm,  gemma_fused_add_rmsnorm, gemma_rmsnorm, rmsnorm
 from .quantization import packbits, segment_packbits
 from .rope import (
     apply_llama31_rope,
@@ -28,11 +28,11 @@ from .sampling import (
     min_p_sampling_from_probs,
     sampling_from_probs,
     top_k_mask_logits,
-    top_k_renorm_prob,
+    top_k_renorm_probs,
     top_k_sampling_from_probs,
     top_k_top_p_sampling_from_logits,
     top_k_top_p_sampling_from_probs,
-    top_p_renorm_prob,
+    top_p_renorm_probs,
     top_p_sampling_from_probs,
 )
 

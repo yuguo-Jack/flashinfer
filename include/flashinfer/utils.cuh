@@ -18,12 +18,18 @@
 
 #ifdef FLASHINFER_WITH_HIP
 #include <hip/hip_runtime.h>
+#include <hip_bf16.h>
+#include <hip_fp16.h>
 #define cudaLaunchKernel hipLaunchKernel
 #else
-#include <cuda_runtime.h>
+#include <cuda_bf16.h>
 #include <cuda_device_runtime_api.h>
+#include <cuda_fp16.h>
+#include <cuda_fp8.h>
+#include <cuda_runtime.h>
 #endif
 
+#include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>

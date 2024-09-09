@@ -34,15 +34,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Top-p sampling from probabilities");
   m.def("top_k_top_p_sampling_from_probs", &top_k_top_p_sampling_from_probs,
         "Top-k and top-p sampling from probabilities");
-  m.def("top_k_renorm_prob", &top_k_renorm_prob, "Renormalize probabilities by top-k mask");
-  m.def("top_p_renorm_prob", &top_p_renorm_prob, "Renormalize probabilities by top-p mask");
+  m.def("top_k_renorm_probs", &top_k_renorm_probs, "Renormalize probabilities by top-k mask");
+  m.def("top_p_renorm_probs", &top_p_renorm_probs, "Renormalize probabilities by top-p mask");
   m.def("top_k_mask_logits", &top_k_mask_logits, "Mask logits by top-k mask");
   m.def("chain_speculative_sampling", &chain_speculative_sampling,
         "Speculative sampling from sequence of probabilities");
   m.def("rmsnorm", &rmsnorm, "Root mean square normalization");
   m.def("fused_add_rmsnorm", &fused_add_rmsnorm, "Fused add root mean square normalization");
+  m.def("gemma_rmsnorm", &gemma_rmsnorm, "Gemma Root mean square normalization");
+  m.def("gemma_fused_add_rmsnorm", &gemma_fused_add_rmsnorm,
+        "Gemma Fused add root mean square normalization");
   m.def("silu_and_mul", &silu_and_mul, "Fused SiLU and Mul");
   m.def("gelu_tanh_and_mul", &gelu_tanh_and_mul, "Fused GeLU Tanh and Mul");
+  m.def("gelu_and_mul", &gelu_and_mul, "Fused GeLU and Mul");
   m.def("apply_rope_inplace", &apply_rope_inplace, "Apply RoPE in-place");
   m.def("apply_llama31_rope_inplace", &apply_llama31_rope_inplace,
         "Apply Llama 3.1 style RoPE in-place");

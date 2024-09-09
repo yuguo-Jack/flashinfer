@@ -60,11 +60,11 @@ std::vector<torch::Tensor> top_k_top_p_sampling_from_probs(
     std::optional<torch::Tensor> maybe_top_k_arr, double top_k_val,
     std::optional<torch::Tensor> maybe_top_p_arr, double top_p_val, bool deterministic);
 
-torch::Tensor top_p_renorm_prob(torch::Tensor probs, std::optional<torch::Tensor> maybe_top_p_arr,
-                                double top_p_val);
+torch::Tensor top_p_renorm_probs(torch::Tensor probs, std::optional<torch::Tensor> maybe_top_p_arr,
+                                 double top_p_val);
 
-torch::Tensor top_k_renorm_prob(torch::Tensor probs, std::optional<torch::Tensor> maybe_top_k_arr,
-                                unsigned int top_k_val);
+torch::Tensor top_k_renorm_probs(torch::Tensor probs, std::optional<torch::Tensor> maybe_top_k_arr,
+                                 unsigned int top_k_val);
 
 torch::Tensor top_k_mask_logits(torch::Tensor logits, std::optional<torch::Tensor> maybe_top_k_arr,
                                 unsigned int top_k_val);
@@ -79,9 +79,16 @@ torch::Tensor rmsnorm(torch::Tensor input, torch::Tensor weight, double eps);
 void fused_add_rmsnorm(torch::Tensor input, torch::Tensor residual, torch::Tensor weight,
                        double eps);
 
+torch::Tensor gemma_rmsnorm(torch::Tensor input, torch::Tensor weight, double eps);
+
+void gemma_fused_add_rmsnorm(torch::Tensor input, torch::Tensor residual, torch::Tensor weight,
+                             double eps);
+
 void silu_and_mul(torch::Tensor& out, torch::Tensor& input);
 
 void gelu_tanh_and_mul(torch::Tensor& out, torch::Tensor& input);
+
+void gelu_and_mul(torch::Tensor& out, torch::Tensor& input);
 
 void apply_rope_inplace(torch::Tensor q, torch::Tensor k, torch::Tensor indptr,
                         torch::Tensor offsets, bool interleave, float rope_scale, float rope_theta);
