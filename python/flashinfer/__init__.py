@@ -38,7 +38,7 @@ from .sampling import (
 
 import torch
 card_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
-if 'DCU' not in card_name:
+if 'NVIDIA' in card_name:
     from .cascade import (
         BatchDecodeWithSharedPrefixPagedKVCacheWrapper,
         BatchPrefillWithSharedPrefixPagedKVCacheWrapper,
